@@ -5,10 +5,8 @@
 #include "font.h"
 #include <string.h> // memset
 
-#define DISPLAY_WIDTH        128
-#define DISPLAY_HEIGHT        64
-
-static uint8_t displayBuffer[DISPLAY_HEIGHT/8][DISPLAY_WIDTH];
+#define PAGE_SIZE       8
+#define NUM_PAGES       (DISPLAY_HEIGHT/PAGE_SIZE)
 
 #define SSD1306         0x78
 #define I2C_WRITE       0x00
@@ -35,69 +33,90 @@ static uint8_t displayBuffer[DISPLAY_HEIGHT/8][DISPLAY_WIDTH];
 #define SET_MEM_ADDR_MODE_CMD   0x20
 
 // 4 hardware configuration
-#define SET_DISP_START_LINE_CMD 0x40 // OR with value 0-63
-#define SET_SEG_REMAP               0xA0
-#define SET_MUX_RATIO   0xA8
-#define SET_COM_SCAN_DEC    0xC8
+#define SET_DISP_START_LINE_CMD 0x40
+#define SET_SEG_REMAP           0xA0
+#define SET_MUX_RATIO           0xA8
+#define SET_COM_SCAN_DEC        0xC8
 #define SET_DISPLAY_OFFSET_CMD  0xD3
-#define SET_COM_PINS    0xDA
+#define SET_COM_PINS            0xDA
 
 // 5. Timing & Driving Scheme Setting Command Table
 #define SET_CLK_DIV         0xD5
 #define SET_PRE_CHARGE_PER  0xD9
 #define SET_VCOM_DESELECT   0xDB
+#define NOOP_CMD            0xE3
 
 #define SET_CHARGE_PUMP     0x8D
 
+static uint8_t disp_buf[NUM_PAGES][DISPLAY_WIDTH];
+
+static __inline__ void _setup_cmd_write(void)
+{
+    i2c_start();
+    i2c_write(SSD1306);
+    i2c_write(CTRL_FRAME | CMD_BIT);
+}
+
+static __inline__ void _stop_write(void)
+{
+    i2c_stop();
+}
+
+static __inline__ void _write_byte(uint8_t b)
+{
+    i2c_write(b);
+}
+
+static __inline__ void _setup_dat_write(void)
+{
+    i2c_start();
+    i2c_write(SSD1306);
+    i2c_write(CTRL_FRAME | GDD_BIT);
+}
+
 void ssd1306_write_byte(uint8_t cmd)
 {
-    I2C_start();
-    I2C_write(SSD1306);
-    I2C_write(CTRL_FRAME | CMD_BIT);
-    I2C_write(cmd);
-    I2C_stop();
+    _setup_cmd_write();
+    _write_byte(cmd);
+    _stop_write();
 }
 
 void ssd1306_write_param(uint8_t cmd, uint8_t dat)
 {
-    I2C_start();
-    I2C_write(SSD1306);
-    I2C_write(CTRL_FRAME | CMD_BIT);
-    I2C_write(cmd);
-    I2C_write(dat);
-    I2C_stop();
+    _setup_cmd_write();
+    _write_byte(cmd);
+    _write_byte(dat);
+    _stop_write();
 }
 
 void ssd1306_write_dat(uint8_t* dat, uint16_t size)
 {
-    I2C_start();
-    I2C_write(SSD1306);
-    I2C_write(CTRL_FRAME | GDD_BIT);
+    _setup_dat_write();
 
     for(uint16_t i = 0; i < size; i++)
     {
-        I2C_write(dat[i]);
+        _write_byte(dat[i]);
     }
 
-    I2C_stop();
+    _stop_write();
 }
 
 void ssd1306_command_seq(uint8_t* dat, uint8_t size)
 {
-    I2C_start();
-    I2C_write(SSD1306);
-    I2C_write(CTRL_FRAME | CMD_BIT);
+    _setup_cmd_write();
+
     for(uint8_t i = 0; i < size; i++)
     {
-        I2C_write(dat[i]);
+        _write_byte(dat[i]);
     }
-    I2C_stop();
+    
+    _stop_write();
 }
 
 /**
  * Turns the display off
  */
-__inline__ void ssd1306_disp_off(void)
+static __inline__ void ssd1306_disp_off(void)
 {
     ssd1306_write_byte(SET_DISP_OFF_CMD);
 }
@@ -105,7 +124,7 @@ __inline__ void ssd1306_disp_off(void)
 /**
  * Turns the display on
  */
-__inline__ void ssd1306_disp_on(void)
+static __inline__ void ssd1306_disp_on(void)
 {
     ssd1306_write_byte(SET_DISP_ON_CMD);
 }
@@ -118,7 +137,7 @@ __inline__ void ssd1306_disp_on(void)
  * bits 7:4 are the oscillator frequency. Higher values result in a higher 
  * frequency
  */
-__inline__ void ssd1306_set_clk(uint8_t dat)
+static __inline__ void ssd1306_set_clk(uint8_t dat)
 {
     ssd1306_write_param(SET_CLK_DIV, dat);
 }
@@ -129,7 +148,7 @@ __inline__ void ssd1306_set_clk(uint8_t dat)
  * 111111b (i.e. 63d, 64MUX)
  * A[5:0] from 0 to 14 are invalid entry.
  */
-__inline__ void ssd1306_set_mux_ratio(uint8_t dat)
+static __inline__ void ssd1306_set_mux_ratio(uint8_t dat)
 {
     ssd1306_write_param(SET_MUX_RATIO, dat);
 }
@@ -138,7 +157,7 @@ __inline__ void ssd1306_set_mux_ratio(uint8_t dat)
  * Set vertical shift by COM from 0d~63d
  * The value is reset to 00h after RESET.
  */
-__inline__ void ssd1306_set_display_offset(uint8_t dat)
+static __inline__ void ssd1306_set_display_offset(uint8_t dat)
 {
     ssd1306_write_param(SET_DISPLAY_OFFSET_CMD, dat);
 }
@@ -149,7 +168,7 @@ __inline__ void ssd1306_set_display_offset(uint8_t dat)
  * Display start line register is reset to 000000b
  * during RESET.
  */
-__inline__ void ssd1306_set_disp_startline(uint8_t dat)
+static __inline__ void ssd1306_set_disp_startline(uint8_t dat)
 {
     ssd1306_write_byte(SET_DISP_START_LINE_CMD);
 }
@@ -163,7 +182,7 @@ __inline__ void ssd1306_set_disp_startline(uint8_t dat)
  * 14h ; Enable Charge Pump
  * AFh; Display ON
  */
-__inline__ void ssd1306_charge_pump_enable(void)
+static __inline__ void ssd1306_charge_pump_enable(void)
 {
     ssd1306_write_param(SET_CHARGE_PUMP, 0x14);
 }
@@ -181,7 +200,7 @@ __inline__ void ssd1306_charge_pump_enable(void)
  * VERT_ADDR_MODE
  * PAGE_ADDR_MODE // (RESET)
  */
-__inline__ void ssd1306_set_mem_addr_mode(uint8_t dat)
+static __inline__ void ssd1306_set_mem_addr_mode(uint8_t dat)
 {
     ssd1306_write_param(SET_MEM_ADDR_MODE_CMD, dat);
 }
@@ -197,7 +216,7 @@ __inline__ void ssd1306_set_mem_addr_mode(uint8_t dat)
  * SEG_NO_REMAP
  * SEG_INVERT
  */
-__inline__ void ssd1306_set_seg_remap(uint8_t dat)
+static __inline__ void ssd1306_set_seg_remap(uint8_t dat)
 {
     ssd1306_write_byte(SET_SEG_REMAP| dat);
 }
@@ -214,12 +233,13 @@ __inline__ void ssd1306_set_seg_remap(uint8_t dat)
  * COM_SCAN_NORM
  * COM_SCAN_REMAP
  */
-__inline__ void ssd1306_set_com_scan_dir(uint8_t dat)
+static __inline__ void ssd1306_set_com_scan_dir(uint8_t dat)
 {
     ssd1306_write_byte(dat);
 }
 
-enum com_pin_config { 
+enum com_pin_config 
+{ 
     SEQ_COM_PIN  = 0b00000010, 
     ALT_COM_PIN  = 0b00010010, 
     DIS_LR_REMAP = 0b00000010, 
@@ -233,7 +253,7 @@ enum com_pin_config {
  * remap
  * A[5]=1b, Enable COM Left/Right remap
  */
-__inline__ void ssd1306_set_com_pins(enum com_pin_config dat)
+static __inline__ void ssd1306_set_com_pins(enum com_pin_config dat)
 {
     ssd1306_write_param(SET_COM_PINS, dat);
 }
@@ -244,7 +264,7 @@ __inline__ void ssd1306_set_com_pins(enum com_pin_config dat)
  * increases.
  * (RESET = 7Fh )
  */
-__inline__ void ssd1306_set_contrast(uint8_t dat)
+static __inline__ void ssd1306_set_contrast(uint8_t dat)
 {
     ssd1306_write_param(SET_CONTRAST_CMD, dat);
 }
@@ -257,20 +277,20 @@ __inline__ void ssd1306_set_contrast(uint8_t dat)
  * clocks 0 is invalid entry
  * (RESET=2h)
  */
-__inline__ void ssd1306_set_pre_charge_period(uint8_t dat)
+static __inline__ void ssd1306_set_pre_charge_period(uint8_t dat)
 {
     ssd1306_write_param(SET_PRE_CHARGE_PER, dat);
 }
 
-#define VCOM_DES_65     0x00
-#define VCOM_DES_77     0x20
-#define VCOM_DES_83     0x30
+#define VCOM_DES_65     0b00000000
+#define VCOM_DES_77     0b00100000
+#define VCOM_DES_83     0b00110000
 /**
  * VCOM_DES_65 ~ 0.65 x Vcc
  * VCOM_DES_77 ~ 0.77 x Vcc
  * VCOM_DES_83 ~ 0.83 x Vcc
  */
-__inline__ void ssd1306_set_vcom_detect(uint8_t dat)
+static __inline__ void ssd1306_set_vcom_detect(uint8_t dat)
 {
     ssd1306_write_param(SET_VCOM_DESELECT, dat);
 }
@@ -279,7 +299,7 @@ __inline__ void ssd1306_set_vcom_detect(uint8_t dat)
  * A4h, X 0 =0b: Resume to RAM content display
  * (RESET)
  */
-__inline__ void ssd1306_display_resume(void)
+static __inline__ void ssd1306_display_resume(void)
 {
     ssd1306_write_byte(RESUME_DISP_CMD);
 }
@@ -291,7 +311,7 @@ __inline__ void ssd1306_display_resume(void)
  * 0 in RAM: OFF in display panel
  * 1 in RAM: ON in display panel
  */
-__inline__ void ssd1306_set_norm_disp(uint8_t ram_opt)
+static __inline__ void ssd1306_set_norm_disp(uint8_t ram_opt)
 {
     ssd1306_write_byte(SET_NORM_DISP | ram_opt);
 }
@@ -299,14 +319,25 @@ __inline__ void ssd1306_set_norm_disp(uint8_t ram_opt)
 /**
  * Deactivate scroll
  */
-__inline__ void ssd1306_deactivate_scroll(void)
+static __inline__ void ssd1306_deactivate_scroll(void)
 {
     ssd1306_write_byte(DEACT_SCROLL_CMD);
 }
 
+/**
+ * Cause why not?
+ */
+static __inline__ void ssd1306_noop(void)
+{
+    ssd1306_write_byte(NOOP_CMD);
+}
+
+/**
+ * Initialize the device
+ */
 void ssd1306_init()
 {
-    I2C_init();
+    i2c_init();
 
     ssd1306_disp_off();
     ssd1306_set_clk(0x80);
@@ -328,51 +359,46 @@ void ssd1306_init()
     ssd1306_disp_on();
 }
 
-void ssd1306_gotoxy(uint8_t x, uint8_t y);
-void ssd1306_goto_xpix_y(uint8_t x, uint8_t y);
-
-void ssd1306_gotoxy(uint8_t x, uint8_t y)
-{
-    x = x * sizeof(FONT[0]);
-    ssd1306_goto_xpix_y(x, y);
-}
-
-void ssd1306_goto_xpix_y(uint8_t x, uint8_t y)
-{
-    if( x > (DISPLAY_WIDTH) || y > (DISPLAY_HEIGHT/8-1)) return;// out of display
-
-    uint8_t commandSequence[] = {0xb0+y, 0x21, x, 0x7f};
-
-    ssd1306_command_seq(commandSequence, sizeof(commandSequence));
-}
-
+/**
+ * Clear the display buffer and clear all bits in GDDRAM
+ */
 void ssd1306_clear_screen()
 {
-    for (uint8_t i = 0; i < DISPLAY_HEIGHT/8; i++)
+    _setup_dat_write();
+
+    for(uint16_t i = 0; i < NUM_PAGES*DISPLAY_WIDTH; i++)
     {
-        memset(displayBuffer[i], 0x00, sizeof(displayBuffer[i]));
-        ssd1306_gotoxy(0, i);
-        ssd1306_write_dat(displayBuffer[i], sizeof(displayBuffer[i]));
+        _write_byte(0x00);
     }
+
+    _stop_write();
+
 }
 
-void ssd1306_draw_pixel(uint8_t x, uint8_t y){
-    if( x > DISPLAY_WIDTH-1 || y > (DISPLAY_HEIGHT-1)) return; // out of Display
-    
-    displayBuffer[(y / 8)][x] |= (1 << (y % 8));
-    // displayBuffer[(y / 8)][x] &= ~(1 << (y % 8));
-
-    // if( color == WHITE){
-    //     displayBuffer[(y / 8)][x] |= (1 << (y % 8));
-    // } else {
-    //     displayBuffer[(y / 8)][x] &= ~(1 << (y % 8));
-    // }
+/**
+ * Set a pixel in the disp_buf. Will need a call to display for the change
+ * to take place
+ */
+void ssd1306_draw_pixel(uint8_t x, uint8_t y)
+{    
+    disp_buf[(y/NUM_PAGES)][x] |= (1 << (y % 8));
 }
 
+/**
+ * Clear a pixel in the disp_buf. Will need a call to display for the change
+ * to take place
+ */
+void ssd1306_clear_pixel(uint8_t x, uint8_t y)
+{    
+    disp_buf[(y/NUM_PAGES)][x] &= ~(1 << (y % 8));
+}
+
+/**
+ * Write the entire buffer contents to GDDRAM
+ */
 void ssd1306_display()
 {
-    ssd1306_gotoxy(0,0);
-    ssd1306_write_dat(&displayBuffer[0][0], DISPLAY_WIDTH*DISPLAY_HEIGHT/8);
+    ssd1306_write_dat(&disp_buf[0][0], sizeof disp_buf);
 }
 
 int main(void)
@@ -383,7 +409,7 @@ int main(void)
     uint8_t x = 0, y = 16;
     int8_t xdir = 1, ydir = 0;
 
-    for(uint16_t i = 0; i < 1024; i++)
+    for(uint16_t i = 0; i < 256; i++)
     {
         if(x >= (DISPLAY_WIDTH - 1)) { xdir *= -1; ydir = 1; }
         if(y >= (DISPLAY_HEIGHT/2 - 1)) { ydir *= -1; }
@@ -395,6 +421,8 @@ int main(void)
         x += xdir;
         y += ydir;
     }
+
+    ssd1306_clear_screen();
 
     while(1) {}
 }
