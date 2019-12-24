@@ -134,3 +134,11 @@ const char ssd1306oled_font[][FONT_WIDTH] PROGMEM = {
 //     {'µ', 103},
 //     {0xff, 0xff} // end of table special_char
 // };
+
+void char2pixels(const char c, uint8_t *dat)
+{
+    for(uint8_t i = 0; i < FONT_WIDTH; i++)
+    {
+        dat[i] = pgm_read_byte(&(ssd1306oled_font[(uint8_t)c - 32][i]));
+    }
+}

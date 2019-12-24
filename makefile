@@ -70,7 +70,7 @@ FORMAT = ihex
 
 
 # Target file name (without extension).
-TARGET = SSD1306
+TARGET = ssd1306
 
 # Object files directory
 #     To put object files in current directory, use a dot (.), do NOT make

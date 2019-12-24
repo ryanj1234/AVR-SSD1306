@@ -1,17 +1,22 @@
 #include <avr/io.h>
 #include <util/delay.h>
-#include "SSD1306.h"
+#include "ssd1306.h"
 #include "i2c.h"
 #include "font.h"
 #include <string.h> // memset
-#include <avr/pgmspace.h>
 
 #define PAGE_SIZE       8
 #define NUM_PAGES       (DISPLAY_HEIGHT/PAGE_SIZE)
 
-#define SSD1306         0x78
-#define I2C_WRITE       0x00
-#define I2C_READ        0x01
+typedef uint8_t ssd1306_page_type;
+typedef uint8_t ssd1306_seq_type;
+
+ssd1306_page_type curr_page = 0;
+ssd1306_seq_type curr_seq = 0;
+
+#define SSD1306_I2C_ADDR    0x78
+#define I2C_WRITE_BIT       0x00
+#define I2C_READ_BIT        0x01
 
 #define CTRL_FRAME      0x00
 #define CONT_BIT        0b10000000
@@ -51,14 +56,14 @@
 
 #define SET_CHARGE_PUMP     0x8D
 
-#ifdef  GRAPHICS_MODE
+#if SSD1306_GRAPHICS_MODE
 static uint8_t disp_buf[NUM_PAGES][DISPLAY_WIDTH];
 #endif
 
 static __inline__ void _setup_cmd_write(void)
 {
     i2c_start();
-    i2c_write(SSD1306);
+    i2c_write(SSD1306_I2C_ADDR);
     i2c_write(CTRL_FRAME | CMD_BIT);
 }
 
@@ -75,7 +80,7 @@ static __inline__ void _write_byte(uint8_t b)
 static __inline__ void _setup_dat_write(void)
 {
     i2c_start();
-    i2c_write(SSD1306);
+    i2c_write(SSD1306_I2C_ADDR);
     i2c_write(CTRL_FRAME | GDD_BIT);
 }
 
@@ -130,7 +135,7 @@ void ssd1306_command_seq(uint8_t* dat, uint8_t size)
 /**
  * Turns the display off
  */
-static __inline__ void _disp_off(void)
+__inline__ void ssd1306_disp_off(void)
 {
     ssd1306_write_byte(SET_DISP_OFF_CMD);
 }
@@ -138,7 +143,7 @@ static __inline__ void _disp_off(void)
 /**
  * Turns the display on
  */
-static __inline__ void _disp_on(void)
+__inline__ void ssd1306_disp_on(void)
 {
     ssd1306_write_byte(SET_DISP_ON_CMD);
 }
@@ -184,7 +189,7 @@ static __inline__ void _set_display_offset(uint8_t dat)
  */
 static __inline__ void _set_disp_startline(uint8_t dat)
 {
-    ssd1306_write_byte(SET_DISP_START_LINE_CMD);
+    ssd1306_write_byte(SET_DISP_START_LINE_CMD | dat);
 }
 
 /**
@@ -252,13 +257,11 @@ static __inline__ void _set_com_scan_dir(uint8_t dat)
     ssd1306_write_byte(dat);
 }
 
-enum com_pin_config 
-{ 
-    SEQ_COM_PIN  = 0b00000010, 
-    ALT_COM_PIN  = 0b00010010, 
-    DIS_LR_REMAP = 0b00000010, 
-    EN_LR_REMAP  = 0b00100010
-};
+
+#define SEQ_COM_PIN     0b00000010
+#define ALT_COM_PIN     0b00010010
+#define DIS_LR_REMAP    0b00000010
+#define EN_LR_REMAP     0b00100010
 /**
  * A[4]=0b, Sequential COM pin configuration
  * A[4]=1b(RESET), Alternative COM pin
@@ -267,7 +270,7 @@ enum com_pin_config
  * remap
  * A[5]=1b, Enable COM Left/Right remap
  */
-static __inline__ void _set_com_pins(enum com_pin_config dat)
+static __inline__ void _set_com_pins(uint8_t dat)
 {
     ssd1306_write_param(SET_COM_PINS, dat);
 }
@@ -353,9 +356,10 @@ static __inline__ void _noop(void)
  * B[6:0]: Column end addres, range : 0-127d,
  * (RESET =127d)
  */
-static __inline__ void _set_column_addr(uint8_t dat)
+static __inline__ void _set_column_addr(uint8_t c)
 {
-    ssd1306_write_param2(SET_COLUMN_ADDR, dat, DISPLAY_WIDTH-1);
+    ssd1306_write_param2(SET_COLUMN_ADDR, c, DISPLAY_WIDTH - 1);
+    curr_seq = c;
 }
 
 /**
@@ -365,21 +369,23 @@ static __inline__ void _set_column_addr(uint8_t dat)
  * B[2:0] : Page end Address, range : 0-7d,
  * (RESET = 7d)
  */
-static __inline__ void _set_page_addr(uint8_t dat)
+static __inline__ void _set_page_addr(uint8_t p)
 {
-    ssd1306_write_param2(SET_PAGE_ADDR, dat, NUM_PAGES - 1);
+    ssd1306_write_param2(SET_PAGE_ADDR, p, NUM_PAGES - 1);
+    curr_page = p;
 }
 
 /**
- * Initialize the device
+ * Initialize the device. Startup sequence and parameters taken mostly from
+ * https://github.com/Sylaina/oled-display/blob/master/lcd.c
+ * and
+ * https://github.com/adafruit/Adafruit_SSD1306/blob/master/Adafruit_SSD1306.cpp
  */
 void ssd1306_init()
 {
-    #ifndef _SSD1306_NO_I2C_INIT
     i2c_init();
-    #endif
 
-    _disp_off();
+    ssd1306_disp_off();
     _set_clk(0x80);
     _set_mux_ratio(DISPLAY_HEIGHT - 1);
 
@@ -390,16 +396,21 @@ void ssd1306_init()
     _set_seg_remap(SEG_INVERT);
     _set_com_scan_dir(COM_SCAN_INV);
 
+    #if SSD1306_USE_BIG_CHARS
     _set_com_pins(SEQ_COM_PIN);
+    #else
+    _set_com_pins(ALT_COM_PIN);
+    #endif
+
     _set_pre_charge_period(0xF1);
-    _set_vcom_detect(VCOM_DES_77); // different from adafruit
+    _set_vcom_detect(VCOM_DES_77); // different from adafruit, investigate
     _display_resume();
     _set_norm_disp(RAM_OFF_DISP);
 
-    _disp_on();
+    ssd1306_disp_on();
 }
 
-void ssd1306_clear_page(uint8_t p)
+void ssd1306_clear_line(uint8_t p)
 {
     ssd1306_set_cursor(0, p);
     _setup_dat_write();
@@ -412,14 +423,21 @@ void ssd1306_clear_page(uint8_t p)
 }
 
 /**
- * Clear the display buffer and clear all bits in GDDRAM
+ * Clear the display and remember the previous location of the cursor
  */
 void ssd1306_clear_screen()
 {
-    for(uint8_t i = 0; i < 3; i++)
+    ssd1306_page_type old_page = curr_page;
+    ssd1306_seq_type old_seq = curr_seq;
+    ssd1306_set_cursor(0, 0);
+
+    uint8_t dat = 0;
+    for(uint16_t i = 0; i < NUM_PAGES*DISPLAY_WIDTH; i++)
     {
-        ssd1306_clear_page(i);
+        ssd1306_write_dat(&dat, 1);
     }
+
+    ssd1306_set_cursor(old_seq, old_page);
 }
 
 /**
@@ -428,7 +446,7 @@ void ssd1306_clear_screen()
  */
 void ssd1306_draw_pixel(uint8_t x, uint8_t y)
 {
-    #ifdef  GRAPHICS_MODE
+    #if SSD1306_GRAPHICS_MODE
     disp_buf[(y/NUM_PAGES)][x] |= (1 << (y % 8));
     #endif
 }
@@ -439,7 +457,7 @@ void ssd1306_draw_pixel(uint8_t x, uint8_t y)
  */
 void ssd1306_clear_pixel(uint8_t x, uint8_t y)
 {
-    #ifdef  GRAPHICS_MODE
+    #if SSD1306_GRAPHICS_MODE
     disp_buf[(y/NUM_PAGES)][x] &= ~(1 << (y % 8));
     #endif
 }
@@ -449,24 +467,50 @@ void ssd1306_clear_pixel(uint8_t x, uint8_t y)
  */
 void ssd1306_display()
 {
-    #ifdef  GRAPHICS_MODE
+    #if SSD1306_GRAPHICS_MODE
     ssd1306_write_dat(&disp_buf[0][0], sizeof disp_buf);
     #endif
 }
 
-void ssd1306_putc(char c){
-    uint8_t data[FONT_WIDTH];
-    // uint8_t data[] = {0x00, 0x7F, 0x08, 0x08, 0x08, 0x7F};
-
-    for (uint8_t i = 0; i < FONT_WIDTH; i++)
+/**
+ * Display a character on the screen at the current page/sequence location. If
+ * character will not fit will wrap to the next line.
+ * 
+ * Additionally, newline characters are recongnized and will cause the
+ * current page number to increment
+ */
+void ssd1306_putc(char c)
+{
+    if(c == '\n')
     {
-        // print font to ram, print 6 columns
-        data[i] = (pgm_read_byte(&(FONT[(uint8_t)c - 32][i])));
+        ssd1306_set_cursor(0, curr_page + 1);
+        return;
     }
 
+    if(curr_seq >= (DISPLAY_WIDTH - FONT_WIDTH))
+    {
+        ssd1306_set_cursor(0, curr_page + 1);
+    }
+
+    uint8_t data[FONT_WIDTH];
+    char2pixels(c, data);
+
+    #if SSD1306_USE_BIG_CHARS
+    ssd1306_page_type old_page = curr_page;
+    ssd1306_seq_type old_seq = curr_seq;
     ssd1306_write_dat(data, FONT_WIDTH);
+    ssd1306_set_cursor(old_seq, old_page + NUM_PAGES/2);
+    ssd1306_write_dat(data, FONT_WIDTH);
+    ssd1306_set_cursor(old_seq+FONT_WIDTH, old_page);
+    #else
+    ssd1306_write_dat(data, FONT_WIDTH);
+    curr_seq += FONT_WIDTH;
+    #endif
 }
 
+/**
+ * Print a string to the screen
+ */
 void ssd1306_puts(const char* s)
 {
     while(*s != 0)
@@ -475,48 +519,27 @@ void ssd1306_puts(const char* s)
     }
 }
 
-void ssd1306_set_cursor(uint8_t x, uint8_t y)
+/**
+ * Set location on display where characters will be printed. x_pix is a pixel
+ * ranging from 0 to display width - 1. page is a y location ranging from 0 to
+ * number of pages - 1 (0-7 for a 64 segment display)
+ */
+void ssd1306_set_cursor(uint8_t x_pix, uint8_t page)
 {
-    _set_column_addr(x);
-    _set_page_addr(y);
+    _set_page_addr(page);
+    _set_column_addr(x_pix);
 }
 
 int main(void)
 {
     ssd1306_init();
     ssd1306_clear_screen();
-    
-    while(1)
-    {
-        for(uint8_t i = 0; i < 2; i++)
-        {
-            for(uint8_t j = 0; j < 4; j++)
-            {
-                ssd1306_set_cursor(i*DISPLAY_WIDTH/2, j);
-                ssd1306_puts("Fuck You");
-                _delay_ms(500);
-                ssd1306_clear_page(j);
-            }
-        }
-    }
 
-    // uint8_t x = 0, y = 16;
-    // int8_t xdir = 1, ydir = 0;
-
-    // for(uint16_t i = 0; i < 256; i++)
-    // {
-    //     if(x >= (DISPLAY_WIDTH - 1)) { xdir *= -1; ydir = 1; }
-    //     if(y >= (DISPLAY_HEIGHT/2 - 1)) { ydir *= -1; }
-
-    //     ssd1306_draw_pixel(x, y);
-    //     ssd1306_display();
-    //     _delay_ms(5);
-
-    //     x += xdir;
-    //     y += ydir;
-    // }
-
-    // ssd1306_clear_screen();
-
+    // ssd1306_puts("What the fuck did you\n"
+    //              "just fucking say\n"
+    //              "about me, you little bitch? I'll have you know"
+    //              "I graduated top\n"
+    //              "of my class in the\n"
+    //              "Navy Seals, and I've been involved in ...");
     while(1) {}
 }

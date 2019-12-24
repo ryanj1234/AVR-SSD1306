@@ -12,6 +12,7 @@
 
 extern const char ssd1306oled_font[][6] PROGMEM;
 // extern const char special_char[][2] PROGMEM;
+void char2pixels(const char c, uint8_t *dat);
 
 #define FONT        ssd1306oled_font
 #define FONT_WIDTH  6
