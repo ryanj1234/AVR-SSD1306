@@ -1,6 +1,5 @@
 #include <avr/io.h>
 #include "i2c.h"
-#include "uart.h"
 
 // #define I2C_clearFlagAndEnable() 			TWCR = (1 << TWINT)|(1 << TWEN)
 #define I2C_clearFlagAndEnableWithStart() 	TWCR = (1 << TWINT)|(1 << TWEN)|(1 << TWSTA)
@@ -133,12 +132,6 @@ uint8_t I2C_readByte(uint8_t reg_addr, uint8_t dataRegister, uint8_t *dataByte)
 	// send start condition
 	if(!(I2C_status = I2C_start()))
 	{
-		#if __DEBUG
-		UART_puts("I2C start fail: 0x");
-		UART_writeHex(I2C_status);
-		UART_newLine();
-		#endif
-
 		// return error
 		return I2C_error;
 	}
@@ -146,12 +139,6 @@ uint8_t I2C_readByte(uint8_t reg_addr, uint8_t dataRegister, uint8_t *dataByte)
 	// send slave address + W
 	if((I2C_status = I2C_write(ADDRW(reg_addr))) != I2C_slaWack)
 	{
-		#if __DEBUG
-		UART_puts("I2C slaW fail: 0x");
-		UART_writeHex(I2C_status);
-		UART_newLine();
-		#endif
-
 		// return error
 		return I2C_error;
 	}
@@ -159,12 +146,6 @@ uint8_t I2C_readByte(uint8_t reg_addr, uint8_t dataRegister, uint8_t *dataByte)
 	// send data register address
 	if((I2C_status = I2C_write(dataRegister)) != I2C_dataAck)
 	{
-		#if __DEBUG
-		UART_puts("I2C dataAck fail: 0x");
-		UART_writeHex(I2C_status);
-		UART_newLine();
-		#endif
-
 		// return error
 		return I2C_error;
 	}
@@ -172,12 +153,6 @@ uint8_t I2C_readByte(uint8_t reg_addr, uint8_t dataRegister, uint8_t *dataByte)
 	// Send repeat start
 	if((I2C_status = I2C_repeatedStart()) != I2C_repeatedStartCode)
 	{
-		#if __DEBUG
-		UART_puts("I2C repeat start fail: 0x");
-		UART_writeHex(I2C_status);
-		UART_newLine();
-		#endif
-
 		// return error
 		return I2C_error;
 	}
@@ -185,12 +160,6 @@ uint8_t I2C_readByte(uint8_t reg_addr, uint8_t dataRegister, uint8_t *dataByte)
 	// Tell slave go in send mode
 	if((I2C_status = I2C_write(ADDRR(reg_addr))) != I2C_slaRack)
 	{
-		#if __DEBUG
-		UART_puts("I2C slaR fail: 0x");
-		UART_writeHex(I2C_status);
-		UART_newLine();
-		#endif
-
 		// return error
 		return I2C_error;
 	}
@@ -198,12 +167,6 @@ uint8_t I2C_readByte(uint8_t reg_addr, uint8_t dataRegister, uint8_t *dataByte)
 	// Read data
 	if((I2C_status = I2C_readNack(dataByte)) != I2C_dataNackRet)
 	{
-		#if __DEBUG
-		UART_puts("I2C dataNack fail: 0x");
-		UART_writeHex(I2C_status);
-		UART_newLine();
-		#endif
-
 		// return error
 		return I2C_error;
 	}
@@ -223,12 +186,6 @@ uint8_t I2C_writeByte(uint8_t reg_addr, uint8_t dataRegister, uint8_t dataByte)
 	// send start condition
 	if(!(I2C_status = I2C_start()))
 	{
-		#if __DEBUG
-		UART_puts("I2C start fail: 0x");
-		UART_writeHex(I2C_status);
-		UART_newLine();
-		#endif
-
 		// return error
 		return I2C_error;
 	}
@@ -236,12 +193,6 @@ uint8_t I2C_writeByte(uint8_t reg_addr, uint8_t dataRegister, uint8_t dataByte)
 	// send slave address + W
 	if((I2C_status = I2C_write(ADDRW(reg_addr))) != I2C_slaWack)
 	{
-		#if __DEBUG
-		UART_puts("I2C write fail: 0x");
-		UART_writeHex(I2C_status);
-		UART_newLine();
-		#endif
-
 		// return error
 		return I2C_error;
 	}
@@ -249,12 +200,6 @@ uint8_t I2C_writeByte(uint8_t reg_addr, uint8_t dataRegister, uint8_t dataByte)
 	// send data register address
 	if((I2C_status = I2C_write(dataRegister)) != I2C_dataAck)
 	{
-		#if __DEBUG
-		UART_puts("I2C write fail: 0x");
-		UART_writeHex(I2C_status);
-		UART_newLine();
-		#endif
-
 		// return error
 		return I2C_error;
 	}
@@ -262,12 +207,6 @@ uint8_t I2C_writeByte(uint8_t reg_addr, uint8_t dataRegister, uint8_t dataByte)
 	// write data to register address
 	if((I2C_status = I2C_write(dataByte)) != I2C_dataAck)
 	{
-		#if __DEBUG
-		UART_puts("I2C write fail: 0x");
-		UART_writeHex(I2C_status);
-		UART_newLine();
-		#endif
-
 		// return error
 		return I2C_error;
 	}

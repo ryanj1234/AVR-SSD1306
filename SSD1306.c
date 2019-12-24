@@ -1,12 +1,16 @@
 #include <avr/io.h>
 #include <util/delay.h>
-#include "uart.h"
+#include "SSD1306.h"
 #include "i2c.h"
+#include "font.h"
+#include <string.h> // memset
 
 #define DISPLAY_WIDTH        128
 #define DISPLAY_HEIGHT        64
 
-#define SSD1306        0x78
+static uint8_t displayBuffer[DISPLAY_HEIGHT/8][DISPLAY_WIDTH];
+
+#define SSD1306         0x78
 #define I2C_WRITE       0x00
 #define I2C_READ        0x01
 
@@ -64,7 +68,7 @@ void ssd1306_write_param(uint8_t cmd, uint8_t dat)
     I2C_stop();
 }
 
-void send_dat(uint8_t* dat, uint16_t size)
+void ssd1306_write_dat(uint8_t* dat, uint16_t size)
 {
     I2C_start();
     I2C_write(SSD1306);
@@ -75,6 +79,18 @@ void send_dat(uint8_t* dat, uint16_t size)
         I2C_write(dat[i]);
     }
 
+    I2C_stop();
+}
+
+void ssd1306_command_seq(uint8_t* dat, uint8_t size)
+{
+    I2C_start();
+    I2C_write(SSD1306);
+    I2C_write(CTRL_FRAME | CMD_BIT);
+    for(uint8_t i = 0; i < size; i++)
+    {
+        I2C_write(dat[i]);
+    }
     I2C_stop();
 }
 
@@ -288,8 +304,10 @@ __inline__ void ssd1306_deactivate_scroll(void)
     ssd1306_write_byte(DEACT_SCROLL_CMD);
 }
 
-int main(void)
+void ssd1306_init()
 {
+    I2C_init();
+
     ssd1306_disp_off();
     ssd1306_set_clk(0x80);
     ssd1306_set_mux_ratio(DISPLAY_HEIGHT - 1);
@@ -308,20 +326,75 @@ int main(void)
     ssd1306_set_norm_disp(RAM_OFF_DISP);
 
     ssd1306_disp_on();
+}
 
-    while(1) {
-        ssd1306_set_contrast(0x00);
-        _delay_ms(500);
-        ssd1306_set_contrast(128);
-        _delay_ms(500);
-        ssd1306_set_contrast(255);
-        _delay_ms(500);
+void ssd1306_gotoxy(uint8_t x, uint8_t y);
+void ssd1306_goto_xpix_y(uint8_t x, uint8_t y);
+
+void ssd1306_gotoxy(uint8_t x, uint8_t y)
+{
+    x = x * sizeof(FONT[0]);
+    ssd1306_goto_xpix_y(x, y);
+}
+
+void ssd1306_goto_xpix_y(uint8_t x, uint8_t y)
+{
+    if( x > (DISPLAY_WIDTH) || y > (DISPLAY_HEIGHT/8-1)) return;// out of display
+
+    uint8_t commandSequence[] = {0xb0+y, 0x21, x, 0x7f};
+
+    ssd1306_command_seq(commandSequence, sizeof(commandSequence));
+}
+
+void ssd1306_clear_screen()
+{
+    for (uint8_t i = 0; i < DISPLAY_HEIGHT/8; i++)
+    {
+        memset(displayBuffer[i], 0x00, sizeof(displayBuffer[i]));
+        ssd1306_gotoxy(0, i);
+        ssd1306_write_dat(displayBuffer[i], sizeof(displayBuffer[i]));
     }
-    // {
-    //     for(uint8_t i = 0; i < 255; i++)
-    //     {
-    //         ssd1306_set_contrast(i);
-    //         _delay_ms(10);
-    //     }
+}
+
+void ssd1306_draw_pixel(uint8_t x, uint8_t y){
+    if( x > DISPLAY_WIDTH-1 || y > (DISPLAY_HEIGHT-1)) return; // out of Display
+    
+    displayBuffer[(y / 8)][x] |= (1 << (y % 8));
+    // displayBuffer[(y / 8)][x] &= ~(1 << (y % 8));
+
+    // if( color == WHITE){
+    //     displayBuffer[(y / 8)][x] |= (1 << (y % 8));
+    // } else {
+    //     displayBuffer[(y / 8)][x] &= ~(1 << (y % 8));
     // }
+}
+
+void ssd1306_display()
+{
+    ssd1306_gotoxy(0,0);
+    ssd1306_write_dat(&displayBuffer[0][0], DISPLAY_WIDTH*DISPLAY_HEIGHT/8);
+}
+
+int main(void)
+{
+    ssd1306_init();
+    ssd1306_clear_screen();
+
+    uint8_t x = 0, y = 16;
+    int8_t xdir = 1, ydir = 0;
+
+    for(uint16_t i = 0; i < 1024; i++)
+    {
+        if(x >= (DISPLAY_WIDTH - 1)) { xdir *= -1; ydir = 1; }
+        if(y >= (DISPLAY_HEIGHT/2 - 1)) { ydir *= -1; }
+
+        ssd1306_draw_pixel(x, y);
+        ssd1306_display();
+        _delay_ms(5);
+
+        x += xdir;
+        y += ydir;
+    }
+
+    while(1) {}
 }
