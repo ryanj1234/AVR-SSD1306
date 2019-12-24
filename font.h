@@ -11,8 +11,9 @@
 #include <avr/pgmspace.h>
 
 extern const char ssd1306oled_font[][6] PROGMEM;
-extern const char special_char[][2] PROGMEM;
+// extern const char special_char[][2] PROGMEM;
 
-#define FONT            ssd1306oled_font
+#define FONT        ssd1306oled_font
+#define FONT_WIDTH  6
 
 #endif

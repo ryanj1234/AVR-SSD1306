@@ -9,5 +9,9 @@ void ssd1306_clear_screen(void);
 void ssd1306_draw_pixel(uint8_t x, uint8_t y);
 void ssd1306_clear_pixel(uint8_t x, uint8_t y);
 void ssd1306_display(void);
+void ssd1306_set_cursor(uint8_t x, uint8_t y);
+
+// Uncomment to prevent initialization routine from configuring I2C
+// #define _SSD1306_NO_I2C_INIT
 
 #endif
