@@ -1,7 +1,10 @@
 #include <avr/io.h>
 #include "i2c.h"
 
-#define i2c_waitForFlagToBeSet() 			while(!(TWCR & (1 << TWINT)))
+static __inline__ void _wait_for_flag_to_be_set(void)
+{
+	while(!(TWCR & _BV(TWINT)));
+}
 
 static __inline__ void _clear_flag_and_enable(void) 
 { 
@@ -23,17 +26,13 @@ static __inline__ uint8_t _get_status(void)
 	return TWSR & I2C_status_mask;
 }
 
-
-/*************************************************************************
- Initializes i2c. Must be called to use i2c. Sets bit rate to 400 by default
-*************************************************************************/
 void i2c_init(void)
 {
 	// activate TWI in power reduction register
-	PRR &= ~(1 << PRTWI);
+	PRR &= ~_BV(PRTWI);
 
 	// disable TWI interrupts
-	TWCR &= ~(1 << TWIE);
+	TWCR &= ~_BV(TWIE);
 
 	// set prescaler bits
 	TWSR |= I2C_PRESCALER_1;
@@ -44,33 +43,25 @@ void i2c_init(void)
 
 uint8_t i2c_start(void)
 {
-	// TWEN is set to enable TWI, TWINT must be cleared (set to 1), and TWSTA is set to send a start
 	_clear_flag_and_enable_w_start();
 
-	// wait for TWINT flag
-	i2c_waitForFlagToBeSet();
+	_wait_for_flag_to_be_set();
 
-	// return status code
 	return _get_status();
 }
 
-void i2c_stop(void)
+__inline__ void i2c_stop(void)
 {
-	// set bits in control register to send stop condition
 	_clear_flag_and_enable_w_stop();
 }
 
-uint8_t i2c_write(uint8_t slaveAddr)
+uint8_t i2c_write(uint8_t b)
 {
-	// load slave address into data register
-	TWDR = slaveAddr;
+	TWDR = b;
 
-	// clear flag and enable
 	_clear_flag_and_enable();
 
-	// wait for flag to be set
-	i2c_waitForFlagToBeSet();
+	_wait_for_flag_to_be_set();
 
-	// return status code
 	return _get_status();
 }

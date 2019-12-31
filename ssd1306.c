@@ -6,7 +6,7 @@
 #include <string.h> // memset
 
 #define PAGE_SIZE       8
-#define NUM_PAGES       (DISPLAY_HEIGHT/PAGE_SIZE)
+#define NUM_PAGES       (SSD1306_DISPLAY_HEIGHT/PAGE_SIZE)
 
 typedef uint8_t ssd1306_page_type;
 typedef uint8_t ssd1306_seq_type;
@@ -18,10 +18,10 @@ ssd1306_seq_type curr_seq = 0;
 #define I2C_WRITE_BIT       0x00
 #define I2C_READ_BIT        0x01
 
-#define CTRL_FRAME      0x00
-#define CONT_BIT        0b10000000
-#define CMD_BIT         0b00000000
-#define GDD_BIT         0b01000000
+#define CTRL_FRAME          0x00
+#define CONT_BIT            0b10000000
+#define CMD_BIT             0b00000000
+#define GDD_BIT             0b01000000
 
 /** Commands */
 // 1 fundamental command table
@@ -33,7 +33,12 @@ ssd1306_seq_type curr_seq = 0;
 #define SET_DISP_ON_CMD     0xAF
 
 // 2 scrolling command table
+#define RIGHT_HORZ_SCROLL   0x26
+#define LEFT_HORZ_SCROLL    0x27
+#define VERT_RIGHT_SCROLL   0x29
+#define VERT_LEFT_SCROLL    0x2A
 #define DEACT_SCROLL_CMD    0x2E
+#define ACTIV_SCROLL_CMD    0x2F
 
 // 3 addressing setting command table
 #define SET_MEM_ADDR_MODE_CMD   0x20
@@ -49,15 +54,15 @@ ssd1306_seq_type curr_seq = 0;
 #define SET_COM_PINS            0xDA
 
 // 5. Timing & Driving Scheme Setting Command Table
-#define SET_CLK_DIV         0xD5
-#define SET_PRE_CHARGE_PER  0xD9
-#define SET_VCOM_DESELECT   0xDB
-#define NOOP_CMD            0xE3
+#define SET_CLK_DIV             0xD5
+#define SET_PRE_CHARGE_PER      0xD9
+#define SET_VCOM_DESELECT       0xDB
+#define NOOP_CMD                0xE3
 
-#define SET_CHARGE_PUMP     0x8D
+#define SET_CHARGE_PUMP         0x8D
 
 #if SSD1306_GRAPHICS_MODE
-static uint8_t disp_buf[NUM_PAGES][DISPLAY_WIDTH];
+static uint8_t disp_buf[NUM_PAGES][SSD1306_DISPLAY_WIDTH];
 #endif
 
 static __inline__ void _setup_cmd_write(void)
@@ -333,10 +338,85 @@ static __inline__ void _set_norm_disp(uint8_t ram_opt)
     ssd1306_write_byte(SET_NORM_DISP | ram_opt);
 }
 
+static __inline__ void 
+_cont_horz_scroll(uint8_t dir, uint8_t start, uint8_t stop, uint8_t interval)
+{
+    _setup_cmd_write();
+    _write_byte(dir);
+    _write_byte(0x00); // dummy byte
+    _write_byte(start);
+    _write_byte(interval);
+    _write_byte(stop);
+    _write_byte(0x00); // dummy byte
+    _write_byte(0xFF); // dummy byte
+    _stop_write();
+}
+
 /**
- * Deactivate scroll
+ * Continuous left horizontal scroll from page start to page end (0 - 7).
+ * 
+ * Intervals:
+ *  000b – 5 frames
+ *  100b – 3 frames
+ *  001b – 64 frames
+ *  101b – 4 frames
+ *  010b – 128 frames
+ *  110b – 25 frame
+ *  011b – 256 frames
+ *  111b – 2 frame
  */
-static __inline__ void _deactivate_scroll(void)
+void ssd1306_scroll_right(uint8_t start, uint8_t stop, uint8_t interval)
+{
+    _cont_horz_scroll(LEFT_HORZ_SCROLL, start, stop, interval);
+}
+
+/**
+ * Continuous right horizontal scroll from page start to page end (0 - 7).
+ * 
+ * Intervals:
+ *  000b – 5 frames
+ *  100b – 3 frames
+ *  001b – 64 frames
+ *  101b – 4 frames
+ *  010b – 128 frames
+ *  110b – 25 frame
+ *  011b – 256 frames
+ *  111b – 2 frame
+ */
+void ssd1306_scroll_left(uint8_t start, uint8_t stop, uint8_t interval)
+{
+    _cont_horz_scroll(RIGHT_HORZ_SCROLL, start, stop, interval);
+}
+
+static __inline__ void 
+_cont_hv_scroll(uint8_t dir, uint8_t start, uint8_t stop, uint8_t interval, uint8_t offset)
+{
+    _setup_cmd_write();
+    _write_byte(dir);
+    _write_byte(0x00); // dummy byte
+    _write_byte(start);
+    _write_byte(interval);
+    _write_byte(stop);
+    _write_byte(offset);
+    _stop_write();
+}
+
+void ssd1306_vert_right_scroll(uint8_t start, uint8_t stop, uint8_t interval, uint8_t offset)
+{
+    _cont_hv_scroll(VERT_RIGHT_SCROLL, start, stop, interval, offset);
+}
+
+void ssd1306_vert_left_scroll(uint8_t start, uint8_t stop, uint8_t interval, uint8_t offset)
+{
+    _cont_hv_scroll(VERT_LEFT_SCROLL, start, stop, interval, offset);
+}
+
+void ssd1306_activate_scroll(void)
+{
+    ssd1306_write_byte(ACTIV_SCROLL_CMD);
+}
+
+void ssd1306_deactivate_scroll(void)
 {
     ssd1306_write_byte(DEACT_SCROLL_CMD);
 }
@@ -358,7 +438,7 @@ static __inline__ void _noop(void)
  */
 static __inline__ void _set_column_addr(uint8_t c)
 {
-    ssd1306_write_param2(SET_COLUMN_ADDR, c, DISPLAY_WIDTH - 1);
+    ssd1306_write_param2(SET_COLUMN_ADDR, c, SSD1306_DISPLAY_WIDTH - 1);
     curr_seq = c;
 }
 
@@ -387,7 +467,7 @@ void ssd1306_init()
 
     ssd1306_disp_off();
     _set_clk(0x80);
-    _set_mux_ratio(DISPLAY_HEIGHT - 1);
+    _set_mux_ratio(SSD1306_DISPLAY_HEIGHT - 1);
 
     _set_display_offset(0x00);
     _set_disp_startline(0x00);
@@ -404,6 +484,7 @@ void ssd1306_init()
 
     _set_pre_charge_period(0xF1);
     _set_vcom_detect(VCOM_DES_77); // different from adafruit, investigate
+    ssd1306_deactivate_scroll();
     _display_resume();
     _set_norm_disp(RAM_OFF_DISP);
 
@@ -414,7 +495,7 @@ void ssd1306_clear_line(uint8_t p)
 {
     ssd1306_set_cursor(0, p);
     _setup_dat_write();
-    for(uint16_t j = 0; j < DISPLAY_WIDTH; j++)
+    for(uint16_t j = 0; j < SSD1306_DISPLAY_WIDTH; j++)
     {
         _write_byte(0x00);
     }
@@ -432,7 +513,7 @@ void ssd1306_clear_screen()
     ssd1306_set_cursor(0, 0);
 
     uint8_t dat = 0;
-    for(uint16_t i = 0; i < NUM_PAGES*DISPLAY_WIDTH; i++)
+    for(uint16_t i = 0; i < NUM_PAGES*SSD1306_DISPLAY_WIDTH; i++)
     {
         ssd1306_write_dat(&dat, 1);
     }
@@ -487,7 +568,7 @@ void ssd1306_putc(char c)
         return;
     }
 
-    if(curr_seq >= (DISPLAY_WIDTH - FONT_WIDTH))
+    if(curr_seq >= (SSD1306_DISPLAY_WIDTH - FONT_WIDTH))
     {
         ssd1306_set_cursor(0, curr_page + 1);
     }
@@ -534,12 +615,19 @@ int main(void)
 {
     ssd1306_init();
     ssd1306_clear_screen();
+    for(uint8_t i = 0; i < 7; i++)
+    {
+        ssd1306_puts("FUCK YOU FUCK YOU\n");
+    }    
 
-    // ssd1306_puts("What the fuck did you\n"
-    //              "just fucking say\n"
-    //              "about me, you little bitch? I'll have you know"
-    //              "I graduated top\n"
-    //              "of my class in the\n"
-    //              "Navy Seals, and I've been involved in ...");
-    while(1) {}
+    _delay_ms(10);
+    ssd1306_activate_scroll();
+
+    while(1) 
+    {
+        ssd1306_vert_right_scroll(0, 7, 6, 63);
+        _delay_ms(1000);
+        ssd1306_vert_left_scroll(0, 7, 6, 63);
+        _delay_ms(1000);
+    }
 }
